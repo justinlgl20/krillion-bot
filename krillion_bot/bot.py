@@ -73,9 +73,7 @@ class KrillionBot(discord.Client):
         return set(self.config.admin_user_ids) | self.service.storage.admins(guild_id)
 
     def is_admin(self, user: discord.abc.User, guild_id: int) -> bool:
-        if user.id in self.admin_ids(guild_id):
-            return True
-        return isinstance(user, discord.Member) and user.guild_permissions.manage_guild
+        return user.id in self.admin_ids(guild_id)
 
     def channel_setting(self, guild_id: int, key: str) -> int | None:
         """Per-server channel override, else the env default (``None`` = unset)."""

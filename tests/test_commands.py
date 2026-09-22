@@ -231,8 +231,9 @@ def test_giveup_register_show(kb):
     assert "#58" in i.text and i.sent[-1][1] is True
 
 
-def test_admin_gate_accepts_delegates_and_manage_guild(kb):
+def test_admin_gate_accepts_delegates_not_server_admins(kb):
     outsider = Fake(999, name="zed")
+    outsider.user.guild_permissions = SimpleNamespace(manage_guild=True, administrator=True)
     run(kb, "krillion admin bans", outsider)
     assert outsider.text == "Only Krillion admins can do that."
     kb.service.storage.add_admin(1, 999)
