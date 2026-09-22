@@ -49,34 +49,11 @@ def add(service, user, n, score, now=DURING_58):
     )
 
 
-# -- storage: settings / privacy / bans / admins -------------------------------
-
-
-def test_settings_roundtrip(service):
+def test_bans_reject_results(service):
     s = service.storage
-    assert s.get_setting(GUILD, "weekly_channel") is None
-    s.set_setting(GUILD, "weekly_channel", "42")
-    s.set_setting(2, "weekly_channel", "7")
-    assert s.get_setting(GUILD, "weekly_channel") == "42"
-    assert s.guilds_with_setting("weekly_channel") == {GUILD: "42", 2: "7"}
-    s.set_setting(GUILD, "weekly_channel", None)
-    assert s.get_setting(GUILD, "weekly_channel") is None
-
-
-def test_opt_out_and_bans_hide_users(service):
-    s = service.storage
-    assert s.opt_out(GUILD, 1, DURING_58)
-    assert not s.opt_out(GUILD, 1, DURING_58)
     assert s.ban(GUILD, 2, banned_by=99, reason="cheating", at=DURING_58)
     assert not s.ban(GUILD, 2, banned_by=99, reason=None, at=DURING_58)
-    assert s.hidden_users(GUILD) == {1, 2}
-    assert s.hidden_users(2) == set()
-    [ban] = s.bans(GUILD)
-    assert (ban.user_id, ban.banned_by, ban.reason) == (2, 99, "cheating")
     assert s.is_banned(GUILD, 2) and not s.is_banned(GUILD, 1)
-    assert s.opt_in(GUILD, 1) and not s.opt_in(GUILD, 1)
-    assert s.unban(GUILD, 2) and not s.unban(GUILD, 2)
-    assert s.hidden_users(GUILD) == set()
 
 
 def test_delegated_admins(service):
@@ -100,7 +77,7 @@ def test_result_queries(service):
     assert s.user_ids(GUILD, []) == []
 
 
-# -- service: bans, give up, ranked board -------------------------------------
+# -- service: bans and ranked board -------------------------------------------
 
 
 def test_banned_user_is_rejected(service):
@@ -108,35 +85,20 @@ def test_banned_user_is_rejected(service):
     out = submit(service, 1, "alice", share(58, 340))
     assert out.status is SubmitStatus.BANNED
     assert service.storage.get_result(GUILD, 58, 1) is None
-    gave_up = service.give_up(
-        guild_id=GUILD, user_id=1, display_name="alice", channel_id=CHANNEL, now=DURING_58
-    )
-    assert gave_up.status is SubmitStatus.BANNED
 
 
-def test_give_up_stores_zero_once(service):
-    out = service.give_up(
-        guild_id=GUILD, user_id=1, display_name="alice", channel_id=CHANNEL, now=DURING_58
-    )
-    assert out.status is SubmitStatus.ACCEPTED and out.current_puzzle == 58
-    assert service.storage.get_result(GUILD, 58, 1).score == 0
-    again = submit(service, 1, "alice", share(58, 340))
-    assert again.status is SubmitStatus.DUPLICATE
-
-
-def test_ranked_players_hides_and_prunes(service):
+def test_ranked_players_prunes_banned_and_inactive(service):
     submit(service, 1, "alice", share(58, 340))
     submit(service, 2, "bob", share(58, 200))
     submit(service, 3, "carol", share(58, 100))
-    service.storage.opt_out(GUILD, 2, DURING_58)
     service.storage.ban(GUILD, 3, banned_by=99, reason=None, at=DURING_58)
     board = service.ranked_players(GUILD, DURING_58, include_inactive=False)
-    assert [p.user_id for p in board] == [1]
+    assert [p.user_id for p in board] == [1, 2]
     much_later = DURING_58 + timedelta(days=40)
     assert service.ranked_players(GUILD, much_later, include_inactive=False) == []
     assert [
         p.user_id for p in service.ranked_players(GUILD, much_later, include_inactive=True)
-    ] == [1]
+    ] == [1, 2]
 
 
 # -- service: admin result management -----------------------------------------

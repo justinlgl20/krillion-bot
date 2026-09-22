@@ -8,11 +8,14 @@ Type=simple
 User=__USER__
 WorkingDirectory=__APP_DIR__
 EnvironmentFile=__APP_DIR__/.env
+# matplotlib's font cache; the home dir is read-only below and a fresh cache
+# costs a CPU-heavy rescan of every font on each start.
+Environment=MPLCONFIGDIR=__APP_DIR__/data/mpl
 ExecStart=__APP_DIR__/.venv/bin/python -m krillion_bot
 Restart=always
 RestartSec=10
 # Oracle Always Free micro VMs have 1 GB RAM; keep the bot well inside that.
-MemoryMax=300M
+MemoryMax=400M
 NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=read-only

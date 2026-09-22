@@ -76,7 +76,7 @@ def _text_font(style: str, size: int) -> ImageFont.FreeTypeFont:
 
 
 @cache
-def _emoji_font() -> ImageFont.FreeTypeFont | None:
+def emoji_font() -> ImageFont.FreeTypeFont | None:
     path = _first_existing(EMOJI_FONT_PATHS)
     if path is None:
         log.warning("No Noto Color Emoji font found; leaderboard images disabled")
@@ -84,7 +84,7 @@ def _emoji_font() -> ImageFont.FreeTypeFont | None:
     return ImageFont.truetype(str(path), _EMOJI_NATIVE)
 
 
-def _emoji_strip(text: str, font: ImageFont.FreeTypeFont) -> Image.Image:
+def emoji_strip(text: str, font: ImageFont.FreeTypeFont) -> Image.Image:
     """Render ``text`` with the bitmap emoji font, scaled down to ``EMOJI`` px tall."""
     left, top, right, bottom = font.getbbox(text)
     canvas = Image.new("RGBA", (max(right, 1), max(bottom, 1)), (0, 0, 0, 0))
@@ -100,8 +100,8 @@ def _plain(note: str) -> str:
 
 def render_table(table: Table) -> bytes | None:
     """PNG bytes for ``table``, or ``None`` if the emoji font is unavailable."""
-    emoji_font = _emoji_font()
-    if emoji_font is None:
+    emoji = emoji_font()
+    if emoji is None:
         return None
     regular = _text_font("regular", FONT)
     bold = _text_font("bold", FONT)
@@ -119,7 +119,7 @@ def render_table(table: Table) -> bytes | None:
     for i, row in enumerate(rows):
         for j, cell in enumerate(row):
             if cell.emoji and cell.text:
-                strips[(i, j)] = _emoji_strip(cell.text, emoji_font)
+                strips[(i, j)] = emoji_strip(cell.text, emoji)
 
     def cell_width(i: int, j: int, cell: Cell) -> int:
         strip = strips.get((i, j))

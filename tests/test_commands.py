@@ -3,6 +3,7 @@ from datetime import datetime, timedelta
 from types import SimpleNamespace
 from zoneinfo import ZoneInfo
 
+import discord
 import pytest
 from test_bot import run_command as run
 
@@ -31,7 +32,7 @@ class Fake:
         self.followup = SimpleNamespace(send=self._send)
 
     async def _send(self, content=None, **kwargs):
-        self.sent.append((content, kwargs.get("ephemeral", False)))
+        self.sent.append((content, kwargs.get("embed"), kwargs.get("ephemeral", False)))
         if "file" in kwargs:
             self.files.append(kwargs["file"])
 
@@ -40,14 +41,19 @@ class Fake:
 
     @property
     def text(self) -> str:
-        return self.sent[-1][0]
+        content, embed, _ = self.sent[-1]
+        return content or (embed.description if embed else "") or (embed.title if embed else "")
+
+    @property
+    def embed(self):
+        return self.sent[-1][1]
 
     def board(self, filename: str, heading: str) -> None:
         """A table went out as a PNG, or as text where no font is installed."""
         if self.files:
             assert self.files[-1].filename == filename
         else:
-            assert heading in self.text
+            assert heading in self.text or heading in (self.embed.title or "")
 
 
 def member(uid: int, name: str):
@@ -92,32 +98,28 @@ def test_all_subcommands_registered(kb):
     names = {c.name for c in group.commands}
     assert names >= {
         "leaderboard", "ratings", "top", "stats", "rating", "performance", "history",
-        "streak", "skips", "vs", "week", "puzzle", "giveup", "register", "unregister",
-        "show", "admin", "config",
+        "streak", "skips", "vs", "week", "puzzle", "admin",
     }  # fmt: skip
     admin = {c.name for c in group.get_command("admin").commands}
-    assert admin == {
-        "remove", "add", "delete", "recompute", "reparse", "import", "export",
-        "ban", "unban", "bans", "admins",
-    }  # fmt: skip
-    assert {c.name for c in group.get_command("config").commands} == {"channel"}
+    assert admin == {"ban"}
 
 
 def test_stats_and_streak(seeded):
     i = Fake(1)
     run(seeded, "krillion stats", i)
-    text = i.text
-    assert "**alice**" in text and "2 played" in text and "Best 700" in text
-    assert "1 win" in text and "streak" in text.lower() and "Rating **" in text
+    assert i.deferred and i.files[0].filename == "krillion-stats.png"
     i = Fake(1)
     run(seeded, "krillion stats", i, member(2, "bob"))
-    assert "bob" in i.text
+    assert i.deferred and i.files[0].filename == "krillion-stats.png"
     i = Fake(1)
     run(seeded, "krillion stats", i, member(9, "nobody"))
-    assert i.sent[-1][1] is True and "hasn't shared" in i.text
+    assert i.sent[-1][2] is True
+    assert "hasn't shared" in i.embed.description
     i = Fake(1)
     run(seeded, "krillion streak", i)
-    assert "2" in i.text and "alice" in i.text
+    assert i.embed.title == "Krillion Streak"
+    assert "`alice`: **1** consecutive perfect day(s)" in i.embed.description
+    assert "Latest result: **340 pts**" in i.embed.description
 
 
 def test_skips_and_history(seeded):
@@ -134,61 +136,65 @@ def test_skips_and_history(seeded):
     )
     i = Fake(3, name="carol")
     run(seeded, "krillion skips", i)
-    assert "#56" in i.text and "#57" in i.text and "#58" not in i.text
+    assert "#56" in i.embed.description and "#57" in i.embed.description
+    assert "#58" not in i.embed.description
     i = Fake(1)
     run(seeded, "krillion history", i)
-    assert "#57" in i.text and "700" in i.text
+    assert "#57" in i.embed.description and "700" in i.embed.description
     i = Fake(9, name="nobody")
     run(seeded, "krillion history", i)
-    assert "no rated" in i.text.lower()
+    assert i.embed.description == "`nobody` has no contested Krillion days yet."
 
 
 def test_rating_and_performance(seeded):
     i = Fake(1)
     run(seeded, "krillion rating", i)
-    assert "alice" in i.text and "Chart appears" in i.text  # one rated day: no chart yet
+    assert i.deferred and i.files[0].filename == "krillion-rating.png"
+    assert i.embed.title == "Krillion rating — alice"
     i = Fake(9, name="nobody")
     run(seeded, "krillion performance", i)
-    assert "no rated" in i.text
+    assert i.embed.description == "No Krillion rating for `nobody` yet."
     post(seeded, 1, "alice", share(56, 100), NOW - timedelta(days=2))
     post(seeded, 2, "bob", share(56, 600), NOW - timedelta(days=2))
     seeded.service.replay(1, NOW)
     i = Fake(1)
     run(seeded, "krillion performance", i)
     assert i.files and i.files[0].filename == "krillion-rating.png"
+    assert i.embed.title == "Krillion performance — alice"
 
 
 def test_top_and_vs(seeded):
     i = Fake(1)
     run(seeded, "krillion top", i)
-    i.board("krillion-top.png", "Krillion Winners — all time")
+    i.board("krillion-top.png", "Krillion Winners")
     i = Fake(1)
     run(seeded, "krillion top", i, "week", True)
-    i.board("krillion-top.png", "this week")
+    i.board("krillion-top.png", "Krillion Winners (With Ties)")
     i = Fake(1)
     run(seeded, "krillion top", i, "year", True)
-    assert "alice" in i.text or i.files
+    i.board("krillion-top.png", "Krillion Winners (With Ties)")
     i = Fake(1)
     run(seeded, "krillion vs", i, member(1, "alice"), member(2, "bob"))
-    assert "alice" in i.text and "bob" in i.text and "1" in i.text
+    assert "alice" in i.embed.description and "bob" in i.embed.description
+    assert "1" in i.embed.description
     i = Fake(1)
     run(seeded, "krillion vs", i, member(1, "alice"), member(1, "alice"))
-    assert "different" in i.text
+    assert "different" in i.embed.description and i.sent[-1][2] is True
     i = Fake(1)
     run(seeded, "krillion vs", i, member(1, "alice"), member(9, "nobody"))
-    assert "No puzzles in common" in i.text
+    assert i.embed.description == "These users have no Krillion puzzles to compare."
 
 
 def test_week(seeded):
     i = Fake(1)
     run(seeded, "krillion week", i)
-    assert "alice" in i.text and "bob" in i.text
+    assert i.deferred and i.files[0].filename.startswith("krillion-week-")
     i = Fake(1)
     run(seeded, "krillion week", i, "last")
-    assert "No Krillion results" in i.text
+    assert "No Krillion results" in i.embed.description
     i = Fake(1)
     run(seeded, "krillion week", i, "not-a-date")
-    assert i.sent[-1][1] is True
+    assert i.sent[-1][2] is True
 
 
 def test_leaderboard_ratings_puzzle(seeded):
@@ -200,119 +206,40 @@ def test_leaderboard_ratings_puzzle(seeded):
     i.board("krillion-57.png", "Krillion #57")
     i = Fake(1)
     run(seeded, "krillion leaderboard", i, 50)
-    assert "no results yet" in i.text
+    assert "No results for Krillion #50 yet." == i.embed.description
     i = Fake(1)
     run(seeded, "krillion ratings", i)
     i.board("krillion-ratings.png", "Ratings")
     i = Fake(1)
     run(seeded, "krillion puzzle", i)
-    assert "**#58**" in i.text
+    assert "**#58**" in i.embed.description
 
 
-def test_giveup_register_show(kb):
-    i = Fake(1)
-    run(kb, "krillion giveup", i)
-    assert "gave up" in i.text
-    assert kb.service.storage.get_result(1, 58, 1).score == 0
-    i = Fake(1)
-    run(kb, "krillion giveup", i)
-    assert i.sent[-1][1] is True and "already" in i.text
-    i = Fake(1)
-    run(kb, "krillion unregister", i)
-    assert kb.service.storage.opted_out(1) == {1}
-    i = Fake(1)
-    run(kb, "krillion unregister", i)
-    assert "already hidden" in i.text
-    i = Fake(1)
-    run(kb, "krillion register", i)
-    assert kb.service.storage.opted_out(1) == set()
-    i = Fake(1)
-    run(kb, "krillion show", i)
-    assert "#58" in i.text and i.sent[-1][1] is True
-
-
-def test_admin_gate_accepts_delegates_and_manage_guild(kb):
-    outsider = Fake(999, name="zed")
-    run(kb, "krillion admin bans", outsider)
-    assert outsider.text == "Only Krillion admins can do that."
-    kb.service.storage.add_admin(1, 999)
-    delegate = Fake(999, name="zed")
-    run(kb, "krillion admin bans", delegate)
-    assert "Nobody is banned" in delegate.text
-
-
-def test_admin_add_remove_delete(kb):
-    a = Fake(ADMIN, name="admin")
-    run(kb, "krillion admin add", a, member(1, "alice"), 640)
-    assert "Added Krillion #58 score **640**" in a.text
-    assert kb.service.storage.get_result(1, 58, 1).score == 640
-    a = Fake(ADMIN, name="admin")
-    run(kb, "krillion admin add", a, member(1, "alice"), 100)
-    assert "already has" in a.text
-    a = Fake(ADMIN, name="admin")
-    run(kb, "krillion admin add", a, member(1, "alice"), 100, 99)
-    assert "isn't out yet" in a.text
-    a = Fake(ADMIN, name="admin")
-    run(kb, "krillion admin add", a, member(2, "bob"), 300, 57)
-    assert "recalculated across 1 closed day" in a.text
-    a = Fake(ADMIN, name="admin")
-    run(kb, "krillion admin remove", a, member(1, "alice"), 58)
-    assert "invalidated by" in a.text
-    a = Fake(ADMIN, name="admin")
-    run(kb, "krillion admin delete", a, 57)
-    assert "Deleted 1 result(s) for Krillion #57" in a.text
-    assert "recalculated across 0 closed day(s)" in a.text
-    assert kb.service.storage.get_player(1, 2).rating == 1200
-    a = Fake(ADMIN, name="admin")
-    run(kb, "krillion admin delete", a, 60, 50)
-    assert "No results stored for Krillion #50–#60" in a.text
-
-
-def test_admin_recompute_and_export(seeded):
-    a = Fake(ADMIN, name="admin")
-    run(seeded, "krillion admin recompute", a)
-    assert a.deferred and "recomputed across 1 closed day" in a.text
-    a = Fake(ADMIN, name="admin")
-    run(seeded, "krillion admin export", a)
-    csv_text = a.files[0].fp.read().decode()
-    assert csv_text.startswith("puzzle,date,user_id,name,score,tiers,submitted_at")
-    assert "57,2026-09-10,1,alice,700" in csv_text
-
-
-def test_admin_bans_and_admins(kb):
+def test_admin_ban(kb):
     a = Fake(ADMIN, name="admin")
     run(kb, "krillion admin ban", a, member(2, "bob"), "cheating")
-    assert "bob** is banned" in a.text and "Reason: cheating" in a.text
+    assert "bob` from Krillion tracking." in a.embed.description
+    assert "Reason: cheating" in a.embed.description
     assert post(kb, 2, "bob", share(58, 700)).status.value == "banned"
     a = Fake(ADMIN, name="admin")
     run(kb, "krillion admin ban", a, member(2, "bob"))
-    assert "already banned" in a.text
-    a = Fake(ADMIN, name="admin")
-    run(kb, "krillion admin bans", a)
-    assert "<@2>" in a.text and "cheating" in a.text
-    a = Fake(ADMIN, name="admin")
-    run(kb, "krillion admin unban", a, member(2, "bob"))
-    assert "can share" in a.text
-    a = Fake(ADMIN, name="admin")
-    run(kb, "krillion admin unban", a, member(2, "bob"))
-    assert "isn't banned" in a.text
-    a = Fake(ADMIN, name="admin")
-    run(kb, "krillion admin admins", a, "add", member(5, "eve"))
-    assert "is now" in a.text and 5 in kb.admin_ids(1)
-    a = Fake(ADMIN, name="admin")
-    run(kb, "krillion admin admins", a, "list")
-    assert "<@5>" in a.text and f"<@{ADMIN}>" in a.text
-    a = Fake(ADMIN, name="admin")
-    run(kb, "krillion admin admins", a, "remove", member(5, "eve"))
-    assert "no longer" in a.text and 5 not in kb.admin_ids(1)
+    assert "already banned" in a.embed.description
 
 
-def test_config_channel(kb):
-    a = Fake(ADMIN, name="admin")
-    chan = SimpleNamespace(id=77, mention="<#77>")
-    run(kb, "krillion config channel", a, "results", chan)
-    assert "<#77>" in a.text
-    assert kb.channel_setting(1, "results_channel") == 77
-    a = Fake(ADMIN, name="admin")
-    run(kb, "krillion config channel", a, "results")
-    assert "_default_" in a.text and kb.channel_setting(1, "results_channel") is None
+def test_manage_server_is_not_admin(kb):
+    mod = Fake(5, name="mod")
+
+    class Mod(discord.Member):
+        def __init__(self):
+            pass
+
+        id = 5
+        display_name = "mod"
+        mention = "<@5>"
+        guild_permissions = discord.Permissions(manage_guild=True, administrator=True)
+
+    mod.user = Mod()
+    run(kb, "krillion admin ban", mod, member(2, "bob"))
+    assert mod.sent[-1][2] is True
+    assert "admin" in mod.embed.description.lower()
+    assert post(kb, 2, "bob", share(58, 700)).status.value != "banned"

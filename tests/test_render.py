@@ -25,9 +25,9 @@ HAVE_EMOJI_FONT = any(p.is_file() for p in render.EMOJI_FONT_PATHS)
 
 @pytest.fixture(autouse=True)
 def clear_font_cache():
-    render._emoji_font.cache_clear()
+    render.emoji_font.cache_clear()
     yield
-    render._emoji_font.cache_clear()
+    render.emoji_font.cache_clear()
 
 
 def test_render_without_emoji_font_returns_none(monkeypatch):
@@ -47,7 +47,7 @@ def test_leaderboard_command_falls_back_to_text(bot, monkeypatch):
     asyncio.run(bot.on_message(FakeMessage("Krillion #58 🦐\n340\n\n🦑🦑🦑🦑🦑🐟🫧")))
     interaction = FakeInteraction(user_id=1)
     run_command(bot, "krillion leaderboard", interaction, None)
-    (text, _ephemeral), *_ = interaction.sent
+    (text, _embed, _ephemeral), *_ = interaction.sent
     assert "Krillion #58 — live" in text
     assert "` 1.`  **alice (1200 E)**  🦑🦑🦑🦑🦑🐟🫧  340  +0" in text
     assert "<t:" in text
@@ -73,4 +73,5 @@ def test_leaderboard_command_empty_day(bot, monkeypatch):
     monkeypatch.setattr("krillion_bot.bot._now", lambda: NOW)
     interaction = FakeInteraction(user_id=1)
     run_command(bot, "krillion leaderboard", interaction, None)
-    assert interaction.sent == [("**Krillion #58** — no results yet. 🫧", False)]
+    assert interaction.embed.description == "No results for Krillion #58 yet."
+    assert interaction.sent[-1][2] is False

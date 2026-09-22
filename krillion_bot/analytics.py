@@ -12,7 +12,7 @@ from __future__ import annotations
 import statistics
 from collections import Counter
 from collections.abc import Iterable, Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import date, timedelta
 
 from .models import RatingEntry, Result
@@ -309,6 +309,7 @@ class WeekDay:
     day: date
     puzzle_number: int
     winners: DayWinners | None
+    participants: int = 0
 
 
 @dataclass(frozen=True)
@@ -319,10 +320,15 @@ class WeekStanding:
     best: int
     solo_wins: int
     tied_wins: int
+    perfects: int = 0
 
     @property
     def average(self) -> float:
         return self.total / self.days
+
+    @property
+    def total_wins(self) -> int:
+        return self.solo_wins + self.tied_wins
 
 
 @dataclass(frozen=True)
@@ -352,7 +358,6 @@ class WeekRecap:
     """Rating changes over the week, biggest gain first."""
     players: int
     results: int
-    notes: list[str] = field(default_factory=list)
 
 
 def _averages(results: Iterable[Result]) -> dict[int, tuple[float, int]]:
@@ -379,8 +384,9 @@ def build_week_recap(
     week = [r for r in results if lo <= r.puzzle_number <= hi]
     previous = [r for r in results if lo - 7 <= r.puzzle_number < lo]
     winners = day_winners(week)
+    counts = {number: len(rows) for number, rows in by_puzzle(week).items()}
     days = [
-        WeekDay(start + timedelta(days=i), lo + i, winners.get(lo + i))
+        WeekDay(start + timedelta(days=i), lo + i, winners.get(lo + i), counts.get(lo + i, 0))
         for i in range(7)
         if start + timedelta(days=i) <= today
     ]
@@ -393,7 +399,9 @@ def build_week_recap(
         solo = sum(1 for d in winners.values() if d.winners == (uid,))
         tied = sum(1 for d in winners.values() if d.tied and uid in d.winners)
         scores = [r.score for r in rows]
-        standings.append(WeekStanding(uid, len(rows), sum(scores), max(scores), solo, tied))
+        standings.append(
+            WeekStanding(uid, len(rows), sum(scores), max(scores), solo, tied, scores.count(700))
+        )
     standings.sort(key=lambda s: (-s.total, -s.average, -s.solo_wins, s.user_id))
 
     highest = None

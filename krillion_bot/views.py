@@ -1,19 +1,14 @@
-"""Text and table views for the stats-style commands (no Discord objects)."""
+"""Embed views for the stats-style commands, in the tle-gf Akari layout."""
 
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from datetime import date
 
-from .analytics import (
-    WEEKDAYS,
-    Streaks,
-    Summary,
-    TopEntry,
-    VsOutcome,
-    WeekRecap,
-)
-from .formatting import Cell, Table, signed
+import discord
+
+from .analytics import Streaks, Summary, TopEntry, VsOutcome
+from .discord_util import alert, cf_color, info, ok, pages, rank_color
+from .formatting import signed
 from .models import RatingEntry
 from .puzzle import PuzzleCalendar
 from .rating import rank_for_rating
@@ -29,82 +24,58 @@ TIMEFRAME_LABEL = {
     "30d": "last 30 days",
 }
 
+PER_PAGE = 10
 HISTORY_PAGE = 15
+DOT = " \N{MIDDLE DOT} "
 
 
 def name_of(names: Names, user_id: int) -> str:
     return names.get(user_id, f"<@{user_id}>")
 
 
-def _num(value: float | None, digits: int = 0) -> str:
-    return "—" if value is None else f"{value:.{digits}f}"
+def _plural(n: int, word: str) -> str:
+    return f"{n} {word}{'s' if n != 1 else ''}"
 
 
-def stats_text(name: str, s: Summary, opted_out: bool = False) -> str:
-    lines = [f"**{name}** 🦐"]
-    if s.rating is not None:
-        rank = rank_for_rating(round(s.rating))
-        peak = f", peak {round(s.peak)}" if s.peak is not None else ""
-        lines.append(
-            f"Rating **{round(s.rating)}** ({rank.title}{peak}) · "
-            f"{s.rated_games} rated day{'s' if s.rated_games != 1 else ''}"
-            + (f" · last {signed(s.last_delta)}" if s.last_delta is not None else "")
-        )
-    else:
-        lines.append("Unrated — no closed day yet")
-    wins = f"{s.wins} win{'s' if s.wins != 1 else ''}"
-    if s.tied_wins:
-        wins += f" (+{s.tied_wins} shared)"
-    lines.append(
-        f"{s.games} played · {wins} · Best {_num(s.best)} · Average {_num(s.average)} · "
-        f"Median {_num(s.median)}"
-    )
-    lines.append(
-        f"Streak {s.streak.current} (longest {s.streak.longest}) · "
-        f"Perfect 700s: {s.perfect_days} (streak {s.perfect_streak.current}, "
-        f"longest {s.perfect_streak.longest})"
-    )
-    if s.best_performance is not None:
-        lines.append(
-            f"Performance: last {_num(s.last_performance)} · best {_num(s.best_performance)}"
-        )
-    if s.tier_counts:
-        tiers = " ".join(f"{emoji}×{n}" for emoji, n in s.tier_counts.most_common())
-        lines.append(f"Rounds: {tiers}")
-    if s.weekday_average:
-        days = " · ".join(f"{WEEKDAYS[d]} {avg:.0f}" for d, avg in s.weekday_average.items())
-        lines.append(f"By weekday: {days}")
-    if opted_out:
-        lines.append("_Hidden from public ratings boards (opted out)._")
-    return "\n".join(lines)
+def _rated(value: float) -> str:
+    return f"{round(value)} ({rank_for_rating(round(value)).abbr})"
 
 
-def streak_text(name: str, play: Streaks, perfect: Streaks) -> str:
-    return (
-        f"**{name}** 🦐\n"
-        f"Play streak: **{play.current}** day{'s' if play.current != 1 else ''} "
-        f"(longest {play.longest})\n"
-        f"Perfect-700 streak: **{perfect.current}** (longest {perfect.longest})"
-    )
+def streak_embed(name: str, play: Streaks, perfect: Streaks, score: int) -> discord.Embed:
+    lines = [
+        f"`{name}`: **{perfect.current}** consecutive perfect day(s)",
+        f"Longest streak: **{perfect.longest}** day(s)",
+        f"Latest result: **{score} pts**" + (" (perfect)" if score == 700 else ""),
+        f"Played: **{play.current}** consecutive day(s) (longest **{play.longest}**)",
+    ]
+    return info("\n".join(lines), title="Krillion Streak", color=cf_color())
 
 
-def skips_text(
+def skips_pages(
     name: str, first: int | None, skipped: Sequence[int], calendar: PuzzleCalendar
-) -> str:
+) -> list[discord.Embed]:
     if first is None:
-        return f"**{name}** hasn't shared a Krillion result yet. 🫧"
+        return [alert(f"No Krillion results found for `{name}`.")]
     if not skipped:
-        return f"**{name}** has played every Krillion since #{first} — no skips! 🦐"
-    shown = ", ".join(f"#{n} ({calendar.date_for(n):%a %d %b})" for n in skipped[:20])
-    more = f" … and {len(skipped) - 20} more" if len(skipped) > 20 else ""
-    return (
-        f"**{name}** has skipped **{len(skipped)}** Krillion{'s' if len(skipped) != 1 else ''} "
-        f"since #{first}:\n{shown}{more}"
-    )
+        return [
+            ok(
+                f"`{name}` has no skipped Krillion days since first submitting "
+                f"**#{first}** on **{calendar.date_for(first)}**."
+            )
+        ]
+    lines = [
+        f"**#{n}**{DOT}{calendar.date_for(n).isoformat()}{DOT}{calendar.date_for(n):%A}"
+        for n in skipped
+    ]
+    title = f"Krillion skipped days — {name} ({_plural(len(skipped), 'day')})"
+    lead = f"Since first submission: **#{first}**{DOT}**{calendar.date_for(first).isoformat()}**"
+    return pages(title, lines, HISTORY_PAGE, lead=lead)
 
 
-def top_table(entries: Sequence[TopEntry], names: Names, label: str, count_ties: bool) -> Table:
-    rows = []
+def top_pages(
+    entries: Sequence[TopEntry], names: Names, label: str, count_ties: bool
+) -> list[discord.Embed]:
+    lines = []
     place = 0
     previous: tuple[int, int] | None = None
     for idx, e in enumerate(entries, start=1):
@@ -112,188 +83,82 @@ def top_table(entries: Sequence[TopEntry], names: Names, label: str, count_ties:
         if key != previous:
             place = idx
             previous = key
-        rows.append(
-            (
-                Cell(str(place)),
-                Cell(name_of(names, e.user_id)),
-                Cell(str(e.solo)),
-                Cell(str(e.tied)),
-                Cell(str(e.total)),
+        name = name_of(names, e.user_id)
+        if count_ties:
+            lines.append(
+                f"**#{place}** `{name}` — **{e.total}** wins ({e.solo} solo, {e.tied} tied)"
             )
-        )
-    notes = ["_Ranked by wins including shared days._" if count_ties else "_Outright wins first._"]
-    return Table(
-        f"Krillion Winners — {label}",
-        ("#", "Name", "Wins", "Shared", "Total"),
-        rows,
-        frozenset({0, 2, 3, 4}),
-        notes,
-    )
+        else:
+            lines.append(f"**#{place}** `{name}` — **{e.solo}** wins")
+    title = "Krillion Winners" + (" (With Ties)" if count_ties else "")
+    return pages(title, lines, PER_PAGE)
 
 
-def vs_text(outcome: VsOutcome, names: Names, label: str, missing_is_loss: bool) -> str:
-    lines = [f"**Krillion Head to Head** — {label} 🦐"]
+def vs_embed(outcome: VsOutcome, names: Names) -> discord.Embed:
     if len(outcome.players) == 2:
         a, b = outcome.players
-        lines += [
-            f"**{name_of(names, a.user_id)}**: {a.points:g} points, {a.wins} wins",
-            f"**{name_of(names, b.user_id)}**: {b.points:g} points, {b.wins} wins",
-            f"Ties: {a.ties}",
+        lines = [
+            f"`{name_of(names, a.user_id)}`: **{a.points:g}** points, **{a.wins}** wins",
+            f"`{name_of(names, b.user_id)}`: **{b.points:g}** points, **{b.wins}** wins",
+            f"Ties: **{a.ties}**",
+            f"Puzzles: **{outcome.puzzles}**",
         ]
-    else:
-        place = 0
-        previous: float | None = None
-        for idx, p in enumerate(outcome.players, start=1):
-            if p.points != previous:
-                place = idx
-                previous = p.points
-            lines.append(
-                f"`{place:>2}.` **{name_of(names, p.user_id)}** — {p.points:g} points · "
-                f"{p.wins}W {p.losses}L {p.ties}T"
-            )
-        lines.append(f"Comparisons: {outcome.comparisons}")
-    lines.append(f"Puzzles: {outcome.puzzles}")
-    if missing_is_loss:
-        lines.append("_A missing result counts as a loss._")
-    return "\n".join(lines)
+        return info("\n".join(lines), title="Krillion Head to Head")
 
-
-def history_page(
-    name: str, entries: Sequence[RatingEntry], calendar: PuzzleCalendar, page: int
-) -> str:
-    """One page of a diver's rating history, newest first."""
-    pages = max(1, -(-len(entries) // HISTORY_PAGE))
-    page = min(max(1, page), pages)
-    newest = list(reversed(entries))
-    chunk = newest[(page - 1) * HISTORY_PAGE : page * HISTORY_PAGE]
-    lines = [f"**{name}** — rating history (page {page}/{pages}) 🦐"]
-    for e in chunk:
-        perf = f" · perf {round(e.performance)}" if e.performance is not None else ""
+    lines = []
+    place = 0
+    previous: float | None = None
+    for idx, player in enumerate(outcome.players, start=1):
+        if player.points != previous:
+            place = idx
+            previous = player.points
         lines.append(
-            f"`#{e.puzzle_number:<4}` {calendar.date_for(e.puzzle_number):%Y-%m-%d} · "
-            f"{e.score:>3} pts · {e.placement}{_ordinal(e.placement)} · "
-            f"{round(e.rating_before)} → **{round(e.rating_after)}** ({signed(e.delta)}){perf}"
+            f"**#{place}** `{name_of(names, player.user_id)}` — **{player.points:g}** points"
+            f"{DOT}**{player.wins}** wins{DOT}**{player.losses}** losses"
+            f"{DOT}**{player.ties}** ties"
         )
-    if not chunk:
-        lines.append("No rated days yet.")
-    return "\n".join(lines)
+    lines.extend(["", f"Puzzles: **{outcome.puzzles}**", f"Comparisons: **{outcome.comparisons}**"])
+    return info("\n".join(lines), title="Krillion Head to Head")
 
 
-def _ordinal(n: int) -> str:
-    if 10 <= n % 100 <= 20:
-        return "th"
-    return {1: "st", 2: "nd", 3: "rd"}.get(n % 10, "th")
-
-
-def rating_text(name: str, s: Summary, games: int) -> str:
-    if s.rating is None:
-        return f"**{name}** is unrated — no closed day yet. 🫧"
-    rank = rank_for_rating(round(s.rating))
-    lines = [
-        f"**{name}** 🦐",
-        f"Rating **{round(s.rating)}** · {rank.title} · peak {_num(s.peak)} · {games} rated days",
-    ]
-    if s.last_delta is not None:
-        lines.append(f"Last change {signed(s.last_delta)}")
-    if s.last_performance is not None:
+def history_pages(
+    name: str, entries: Sequence[RatingEntry], calendar: PuzzleCalendar
+) -> list[discord.Embed]:
+    """Contested days, newest first."""
+    entries = [e for e in entries if e.performance is not None]
+    if not entries:
+        return [alert(f"`{name}` has no contested Krillion days yet.")]
+    lines = []
+    for e in reversed(entries):
         lines.append(
-            f"Performance: last {_num(s.last_performance)} · best {_num(s.best_performance)}"
+            f"**#{e.puzzle_number}**{DOT}{calendar.date_for(e.puzzle_number).isoformat()}"
+            f"{DOT}{e.score} pts{DOT}{round(e.rating_before)} \N{HORIZONTAL BAR} "
+            f"**{round(e.delta):+}** \N{LONG RIGHTWARDS ARROW} {round(e.rating_after)} "
+            f"({rank_for_rating(round(e.rating_after)).abbr})"
+            f"{DOT}perf {round(e.performance)}"
         )
-    return "\n".join(lines)
+    title = f"Krillion rating history — {name} ({len(entries)} contests)"
+    return pages(title, lines, HISTORY_PAGE)
 
 
-# -- weekly recap ------------------------------------------------------------
-
-
-def week_table(recap: WeekRecap, names: Names) -> Table:
-    rows = []
-    for idx, s in enumerate(recap.standings, start=1):
-        wins = str(s.solo_wins) + (f" (+{s.tied_wins})" if s.tied_wins else "")
-        rows.append(
-            (
-                Cell(str(idx)),
-                Cell(name_of(names, s.user_id)),
-                Cell(str(s.total)),
-                Cell(f"{s.average:.0f}"),
-                Cell(str(s.best)),
-                Cell(str(s.days)),
-                Cell(wins),
-            )
+def rating_embed(name: str, s: Summary, games: int, *, performance: bool) -> discord.Embed:
+    """``/krillion rating`` and ``/krillion performance`` header; the plot hangs below it."""
+    assert s.rating is not None
+    if performance and s.last_performance is not None and s.best_performance is not None:
+        e = discord.Embed(
+            title=f"Krillion performance — {name}", color=rank_color(s.last_performance)
         )
-    state = "so far" if recap.in_progress else "final"
-    title = f"Krillion Week of {recap.start:%d %b %Y} — {state}"
-    header = ("#", "Name", "Total", "Avg", "Best", "Days", "Wins")
-    return Table(title, header, rows, frozenset({0, 2, 3, 4, 5, 6}), [])
-
-
-def week_text(recap: WeekRecap, names: Names, viewer: int | None = None) -> str:
-    lines = [
-        f"**Krillion week {recap.start:%d %b} – {recap.end:%d %b %Y}** "
-        f"{'(in progress) ' if recap.in_progress else ''}🦐",
-        f"{recap.players} diver{'s' if recap.players != 1 else ''} · {recap.results} results",
-        "",
-        "**Day by day**",
-    ]
-    for d in recap.days:
-        if d.winners is None:
-            lines.append(f"`{d.day:%a}` #{d.puzzle_number}: —")
-            continue
-        who = ", ".join(name_of(names, u) for u in d.winners.winners)
-        tie = " (tie)" if d.winners.tied else ""
-        lines.append(
-            f"`{d.day:%a}` #{d.puzzle_number}: **{who}** {d.winners.score}{tie} · "
-            f"{d.winners.participants} divers"
-        )
-    if recap.highest or recap.most_improved:
-        lines += ["", "**Standouts**"]
-    if recap.highest:
-        uid, score, day = recap.highest
-        lines.append(f"Highest score: **{name_of(names, uid)}** {score} on {day:%a}")
-    if recap.most_improved:
-        uid, gain = recap.most_improved
-        lines.append(f"Most improved: **{name_of(names, uid)}** +{gain:.0f} avg vs last week")
-    if recap.moves:
-        lines += ["", "**Rating movers**"]
-        best = recap.moves[:3]
-        worst = [m for m in recap.moves[-3:] if m not in best]
-        for m in best + list(reversed(worst)):
-            lines.append(
-                f"{name_of(names, m.user_id)}: {round(m.before)} → {round(m.after)} "
-                f"({signed(m.delta)})"
-            )
-    if viewer is not None:
-        mine = next((s for s in recap.standings if s.user_id == viewer), None)
-        if mine is not None:
-            rank = recap.standings.index(mine) + 1
-            lines += [
-                "",
-                f"**Your week**: #{rank} · {mine.days} days · {mine.total} total · "
-                f"avg {mine.average:.0f} · {mine.solo_wins} wins",
-            ]
-    return "\n".join(lines)
-
-
-def settings_text(
-    results_channel: int | None,
-    leaderboard_channel: int | None,
-    weekly_channel: int | None,
-    admins: Sequence[int],
-    bans: int,
-    opted_out: int,
-    current: int,
-    today: date,
-) -> str:
-    def chan(cid: int | None) -> str:
-        return f"<#{cid}>" if cid else "_not set_"
-
-    who = ", ".join(f"<@{a}>" for a in admins) or "_none_"
-    return (
-        f"**Krillion settings** 🦐\n"
-        f"Today: Krillion #{current} ({today:%a %d %b %Y})\n"
-        f"Results read from: {chan(results_channel)} (empty = every channel)\n"
-        f"Daily leaderboard posted to: {chan(leaderboard_channel)} "
-        f"(empty = where results were shared)\n"
-        f"Weekly recap posted to: {chan(weekly_channel)} (empty = off)\n"
-        f"Admins: {who}\n"
-        f"Banned: {bans} · Opted out of boards: {opted_out}"
+        e.add_field(name="Last performance", value=_rated(s.last_performance))
+        e.add_field(name="Best performance", value=_rated(s.best_performance))
+        e.add_field(name="Contests", value=str(games))
+        return e
+    e = discord.Embed(title=f"Krillion rating — {name}", color=rank_color(s.rating))
+    e.add_field(name="Rating", value=_rated(s.rating))
+    e.add_field(name="Peak", value=_rated(s.peak if s.peak is not None else s.rating))
+    e.add_field(name="Games", value=str(games))
+    e.add_field(name="Last change", value=signed(s.last_delta) if s.last_delta is not None else "—")
+    e.add_field(
+        name="Last performance",
+        value=_rated(s.last_performance) if s.last_performance is not None else "—",
     )
+    return e

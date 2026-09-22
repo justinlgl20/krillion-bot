@@ -12,18 +12,33 @@ cd "$APP_DIR"
 # The 1 GB Always Free micro shape has little or no swap (Oracle Linux ships
 # ~1 GB, Ubuntu none); dnf/apt metadata + pip can OOM it hard enough that even
 # ssh stops answering. Make sure there is at least 2 GB of swap first.
+# fallocate is instant; no dd fallback, as writing 2 GB of zeros through the
+# page cache on a slow boot volume is itself enough to make the box unreachable.
 SWAP_KB=$(awk '/^SwapTotal/ {print $2}' /proc/meminfo)
 if [ "$SWAP_KB" -lt $((2 * 1024 * 1024)) ] && ! swapon --show=NAME --noheadings | grep -qx /swapfile; then
     echo "==> Adding 2G swapfile"
-    if [ ! -f /swapfile ]; then
-        sudo fallocate -l 2G /swapfile 2>/dev/null \
-            || sudo dd if=/dev/zero of=/swapfile bs=1M count=2048 status=none
+    if [ -f /swapfile ] || sudo fallocate -l 2G /swapfile 2>/dev/null; then
+        sudo chmod 600 /swapfile
+        sudo mkswap /swapfile >/dev/null
+        sudo swapon /swapfile
+        grep -q '^/swapfile' /etc/fstab || echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab >/dev/null
+    else
+        echo "!!  fallocate failed; continuing without extra swap"
     fi
-    sudo chmod 600 /swapfile
-    sudo mkswap /swapfile >/dev/null
-    sudo swapon /swapfile
-    grep -q '^/swapfile' /etc/fstab || echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab >/dev/null
 fi
+
+# Every heavy step below runs through this: lowest CPU priority, and (where
+# systemd is present) inside a scope capped well under the VM's RAM so the OOM
+# killer takes the installer, never sshd or the kernel.
+as_root() {
+    if command -v systemd-run >/dev/null 2>&1; then
+        sudo systemd-run --quiet --scope \
+            -p MemoryMax=600M -p MemorySwapMax=1G -p CPUWeight=10 -- nice -n 19 "$@"
+    else
+        sudo nice -n 19 "$@"
+    fi
+}
+capped() { as_root sudo -u "$RUN_USER" env "PATH=$PATH" "$@"; }
 
 # Oracle Linux refreshes dnf metadata for every enabled repo hourly; that alone
 # can push a 1 GB box into swap-thrash. dnf still refreshes on demand when used.
@@ -38,8 +53,8 @@ if command -v apt-get >/dev/null 2>&1; then
     # Ubuntu / Debian (Canonical Ubuntu images on Oracle Cloud)
     PY=python3
     if ! "$PY" -m venv --help >/dev/null 2>&1 || ! "$PY" -m pip --version >/dev/null 2>&1; then
-        sudo DEBIAN_FRONTEND=noninteractive nice -n 19 apt-get update -qq
-        sudo DEBIAN_FRONTEND=noninteractive nice -n 19 apt-get install -y -qq --no-install-recommends \
+        as_root env DEBIAN_FRONTEND=noninteractive apt-get update -qq
+        as_root env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends \
             python3 python3-venv python3-pip >/dev/null
     fi
 elif command -v dnf >/dev/null 2>&1; then
@@ -49,7 +64,7 @@ elif command -v dnf >/dev/null 2>&1; then
         # Only the two repos that carry python; the default set (UEK, ksplice, oci_included, ...)
         # pulls hundreds of MB of metadata into RAM on every run.
         OL="$(. /etc/os-release && echo "${VERSION_ID%%.*}")"
-        sudo nice -n 19 dnf install -y -q --nodocs --setopt=install_weak_deps=False \
+        as_root dnf install -y -q --nodocs --setopt=install_weak_deps=False \
             --disablerepo='*' --enablerepo="ol${OL}_baseos_latest,ol${OL}_appstream" \
             python3.11 python3.11-pip >/dev/null
     fi
@@ -65,9 +80,13 @@ fi
 # Build in-venv rather than in pip's isolated build env, which would download
 # setuptools on every deploy. After the first run this step needs no network.
 if ! .venv/bin/python -c 'import setuptools, wheel; assert int(setuptools.__version__.split(".")[0]) >= 68' >/dev/null 2>&1; then
-    nice -n 19 .venv/bin/pip install --quiet --no-cache-dir 'setuptools>=68' wheel
+    capped .venv/bin/pip install --quiet --no-cache-dir 'setuptools>=68' wheel
 fi
-nice -n 19 .venv/bin/pip install --quiet --no-cache-dir --no-build-isolation .
+# --only-binary: never compile aiohttp/Pillow/numpy/matplotlib from source; a
+# C build is what pins a 1 GB VM at 100% CPU and swaps it into the ground. If
+# no wheel exists for this Python, fail loudly instead.
+capped .venv/bin/pip install --quiet --no-cache-dir --no-build-isolation --only-binary=:all: . \
+    || { echo "!!  No prebuilt wheels for $(.venv/bin/python --version); install a Python with wheel support" >&2; exit 1; }
 mkdir -p data
 
 # Leaderboard images: DejaVu Sans for text (usually preinstalled) and Noto Color
@@ -76,17 +95,17 @@ if [ ! -f fonts/NotoColorEmoji.ttf ]; then
     echo "==> Downloading Noto Color Emoji font"
     mkdir -p fonts
     curl -fsSL -o fonts/NotoColorEmoji.ttf \
-        https://github.com/googlefonts/noto-emoji/raw/main/fonts/NotoColorEmoji.ttf \
+        https://github.com/googlefonts/noto-emoji/raw/v2.047/fonts/NotoColorEmoji.ttf \
         || echo "!!  Font download failed; leaderboards will be text-only until it exists"
 fi
 if ! ls /usr/share/fonts/*/DejaVuSans.ttf /usr/share/fonts/*/*/DejaVuSans.ttf >/dev/null 2>&1; then
     echo "==> Installing DejaVu Sans"
     if command -v apt-get >/dev/null 2>&1; then
-        sudo DEBIAN_FRONTEND=noninteractive nice -n 19 apt-get install -y -qq --no-install-recommends \
+        as_root env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends \
             fonts-dejavu-core >/dev/null
     else
         OL="$(. /etc/os-release && echo "${VERSION_ID%%.*}")"
-        sudo nice -n 19 dnf install -y -q --nodocs --setopt=install_weak_deps=False \
+        as_root dnf install -y -q --nodocs --setopt=install_weak_deps=False \
             --disablerepo='*' --enablerepo="ol${OL}_baseos_latest,ol${OL}_appstream" \
             dejavu-sans-fonts >/dev/null
     fi

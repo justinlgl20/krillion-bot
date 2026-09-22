@@ -59,20 +59,6 @@ CREATE TABLE IF NOT EXISTS meta (
     value TEXT NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS guild_settings (
-    guild_id INTEGER NOT NULL,
-    key      TEXT    NOT NULL,
-    value    TEXT    NOT NULL,
-    PRIMARY KEY (guild_id, key)
-);
-
-CREATE TABLE IF NOT EXISTS opt_outs (
-    guild_id  INTEGER NOT NULL,
-    user_id   INTEGER NOT NULL,
-    opted_out_at TEXT NOT NULL,
-    PRIMARY KEY (guild_id, user_id)
-);
-
 CREATE TABLE IF NOT EXISTS bans (
     guild_id  INTEGER NOT NULL,
     user_id   INTEGER NOT NULL,

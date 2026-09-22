@@ -34,6 +34,9 @@ SQLite on disk, ~60 MB RAM, no other services.
   DejaVu Sans and Noto Color Emoji (`fonts/NotoColorEmoji.ttf`, fetched by
   the deploy script); if either is missing the same board is sent as text.
   Rendering takes well under 100 ms and a few MB of RAM.
+- **Dashboards**: `stats`, `week`, `rating` and `performance` reply with
+  matplotlib images in the NeoTLE style (player names coloured by rating
+  rank); everything else replies with NeoTLE-style embeds and paged lists.
 - **Rating**: the Codeforces-style contest rating used by the Queens bot in
   [mklol/tle-gf](https://github.com/mklol/tle-gf). Everyone starts at
   **1200**. Each day is one contest: submitters are ranked by score (ties
@@ -51,7 +54,7 @@ SQLite on disk, ~60 MB RAM, no other services.
   lost are shared out among that day's submitters.
 - **Weekly recap**: after Sunday's puzzle closes, a Monday–Sunday recap (each
   day's winner, weekly standings, highest score, most improved, biggest rating
-  moves) is posted to the channel set with `/krillion config channel weekly`.
+  moves) is available through `/krillion week`.
 - **Slash commands** all live under `/krillion`, ported from the Akari
   minigame in [mklol/tle-gf](https://github.com/mklol/tle-gf) and reshaped
   for Krillion's daily score. Anywhere a puzzle is asked for you can give the
@@ -86,34 +89,15 @@ SQLite on disk, ~60 MB RAM, no other services.
   Participation
   - `/krillion puzzle` – which puzzle is live and when it resets (in each
     user's local time)
-  - `/krillion giveup` – record a 0 for today so the day still counts
-  - `/krillion unregister` / `/krillion register` – hide yourself from the
-    ratings and winners boards (results still count), and undo that
-  - `/krillion show` – how the bot is configured in this server
 
-  Admin (`/krillion admin …`, `/krillion config …`) — for `ADMIN_USER_IDS`,
-  delegated admins, and anyone with *Manage Server*
-  - `remove <member> [puzzle|date] [reason]` – remove a misreported score. If
-    the day is still open the player can repost; if it was already closed,
-    every closed day's rating is replayed from the remaining results
-  - `add <member> <score> [puzzle|date] [tiers]` – record a score by hand,
-    for today or any past day (closed days are re-rated)
-  - `delete <start> [end]` – wipe every result for a puzzle or a range
-  - `recompute` – replay every day's rating from the stored results
-  - `reparse [puzzle|date]` – re-read the original share messages behind a
-    day's results (for divers who edited their paste)
-  - `import <channel> [limit]` – backfill results from a channel's history,
-    judged by when each message was posted, then recompute ratings
-  - `export` – every stored result as CSV
-  - `ban <member> [reason]` / `unban <member>` / `bans` – banned divers'
+  Admin (`/krillion admin ban`) — for `ADMIN_USER_IDS` and delegated admins
+  only; server permissions such as *Manage Server* grant nothing
+  - `ban <member> [reason]` – banned divers'
     results are ignored (🚫 reaction) and they are hidden from boards
-  - `admins <add|remove|list> [member]` – delegate admin rights
-  - `config channel <results|leaderboard|weekly> [channel]` – per-server
-    channel settings; leaving `channel` empty restores the `.env` default
 
 - **Admins** are the Discord user IDs in `ADMIN_USER_IDS` (default:
-  `750888871696269402`), plus anyone added with `/krillion admin admins` and
-  members with the *Manage Server* permission.
+  `750888871696269402`), plus delegated admins and members with the *Manage
+  Server* permission.
 
 ## 1. Create the Discord application
 
@@ -190,8 +174,8 @@ All settings live in `.env` (see `.env.example`):
 | Variable | Default | Meaning |
 | --- | --- | --- |
 | `DISCORD_TOKEN` | – | Bot token (required) |
-| `LEADERBOARD_CHANNEL_ID` | empty | Channel for the daily post; empty = where results were shared. `/krillion config channel` overrides this per server |
-| `RESULTS_CHANNEL_ID` | empty | Only read results from this channel; empty = all channels. Overridable per server too |
+| `LEADERBOARD_CHANNEL_ID` | empty | Channel for the daily post; empty = where results were shared |
+| `RESULTS_CHANNEL_ID` | empty | Only read results from this channel; empty = all channels |
 | `DATABASE_PATH` | `data/krillion.sqlite3` | SQLite file |
 | `LATE_GRACE_MINUTES` | `10` | How long after reset the previous puzzle is still accepted |
 | `RATING_DAMPING` | `0.25` | Fraction of the raw contest delta applied each day |
@@ -214,17 +198,19 @@ krillion_bot/
   rating.py         Codeforces/Queens-bot contest rating, performance, ranks, decay
   models.py         Result / Player / RatingEntry records
   storage.py        SQLite persistence (results, players, rating history)
-  storage_game.py   settings, opt-outs, bans, delegated admins, range queries
-  service.py        submissions, grace period, closing a day, admin edits, replay
+  storage_game.py   result queries, bans, delegated admins
+  service.py        submissions, grace period, closing a day, replay
   analytics.py      streaks, skips, winners, head-to-head, stats, weekly recap
   formatting.py     leaderboard rows/text
-  views.py          text and tables for the stats/streak/vs/week commands
+  views.py          embeds and pages for the streak/skips/top/vs/history/rating commands
   render.py         leaderboard PNG
-  charts.py         rating / performance graph PNG
-  discord_util.py   shared reply / attachment helpers
+  charts.py         matplotlib theme, rank colours, rating / performance graph
+  plot_stats.py     /krillion stats dashboard
+  plot_week.py      weekly recap dashboard
+  discord_util.py   embeds, pagination, attachments
   commands.py       /krillion public commands
-  commands_admin.py /krillion admin and config subgroups
-  bot.py            Discord glue (events, scheduler, weekly recap, imports)
+  commands_admin.py /krillion admin ban subgroup
+  bot.py            Discord glue (events, scheduler, weekly recap)
 deploy/          deploy.sh, setup-vm.sh, systemd unit
 tests/
 ```

@@ -1,23 +1,12 @@
-"""Storage queries behind the game commands: bulk result reads, rating history
-per player, per-guild settings, opt-outs, bans and delegated admins."""
+"""Storage queries behind the game commands: results, bans and admins."""
 
 from __future__ import annotations
 
 import sqlite3
 from collections.abc import Iterable
-from dataclasses import dataclass
 from datetime import datetime, timezone
 
 from .models import RatingEntry, Result
-
-
-@dataclass(frozen=True)
-class Ban:
-    guild_id: int
-    user_id: int
-    banned_by: int
-    reason: str | None
-    banned_at: datetime
 
 
 def _iso(dt: datetime) -> str:
@@ -118,53 +107,6 @@ class GameStorageMixin:
         ).fetchall()
         return [RatingEntry(**r) for r in rows]
 
-    # -- guild settings --------------------------------------------------
-
-    def get_setting(self, guild_id: int, key: str) -> str | None:
-        row = self._conn.execute(
-            "SELECT value FROM guild_settings WHERE guild_id = ? AND key = ?", (guild_id, key)
-        ).fetchone()
-        return row["value"] if row else None
-
-    def set_setting(self, guild_id: int, key: str, value: str | None) -> None:
-        if value is None:
-            self._conn.execute(
-                "DELETE FROM guild_settings WHERE guild_id = ? AND key = ?", (guild_id, key)
-            )
-            return
-        self._conn.execute(
-            "INSERT INTO guild_settings (guild_id, key, value) VALUES (?, ?, ?) "
-            "ON CONFLICT(guild_id, key) DO UPDATE SET value = excluded.value",
-            (guild_id, key, value),
-        )
-
-    def guilds_with_setting(self, key: str) -> dict[int, str]:
-        rows = self._conn.execute(
-            "SELECT guild_id, value FROM guild_settings WHERE key = ?", (key,)
-        ).fetchall()
-        return {r["guild_id"]: r["value"] for r in rows}
-
-    # -- opt-outs --------------------------------------------------------
-
-    def opt_out(self, guild_id: int, user_id: int, at: datetime) -> bool:
-        cur = self._conn.execute(
-            "INSERT OR IGNORE INTO opt_outs (guild_id, user_id, opted_out_at) VALUES (?, ?, ?)",
-            (guild_id, user_id, _iso(at)),
-        )
-        return cur.rowcount == 1
-
-    def opt_in(self, guild_id: int, user_id: int) -> bool:
-        cur = self._conn.execute(
-            "DELETE FROM opt_outs WHERE guild_id = ? AND user_id = ?", (guild_id, user_id)
-        )
-        return cur.rowcount == 1
-
-    def opted_out(self, guild_id: int) -> set[int]:
-        rows = self._conn.execute(
-            "SELECT user_id FROM opt_outs WHERE guild_id = ?", (guild_id,)
-        ).fetchall()
-        return {r["user_id"] for r in rows}
-
     # -- bans ------------------------------------------------------------
 
     def ban(
@@ -177,36 +119,11 @@ class GameStorageMixin:
         )
         return cur.rowcount == 1
 
-    def unban(self, guild_id: int, user_id: int) -> bool:
-        cur = self._conn.execute(
-            "DELETE FROM bans WHERE guild_id = ? AND user_id = ?", (guild_id, user_id)
-        )
-        return cur.rowcount == 1
-
-    def bans(self, guild_id: int) -> list[Ban]:
-        rows = self._conn.execute(
-            "SELECT * FROM bans WHERE guild_id = ? ORDER BY banned_at", (guild_id,)
-        ).fetchall()
-        return [
-            Ban(
-                guild_id=r["guild_id"],
-                user_id=r["user_id"],
-                banned_by=r["banned_by"],
-                reason=r["reason"],
-                banned_at=datetime.fromisoformat(r["banned_at"]),
-            )
-            for r in rows
-        ]
-
     def is_banned(self, guild_id: int, user_id: int) -> bool:
         row = self._conn.execute(
             "SELECT 1 FROM bans WHERE guild_id = ? AND user_id = ?", (guild_id, user_id)
         ).fetchone()
         return row is not None
-
-    def hidden_users(self, guild_id: int) -> set[int]:
-        """Players kept off public boards: banned or opted out."""
-        return self.opted_out(guild_id) | {b.user_id for b in self.bans(guild_id)}
 
     # -- delegated admins ------------------------------------------------
 

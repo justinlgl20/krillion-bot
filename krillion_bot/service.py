@@ -127,20 +127,6 @@ class KrillionService:
             guild_id, user_id, display_name, parsed, channel_id, message_id, now, current
         )
 
-    def give_up(
-        self,
-        *,
-        guild_id: int,
-        user_id: int,
-        display_name: str,
-        channel_id: int,
-        now: datetime,
-    ) -> SubmitOutcome:
-        """Record a zero for today's puzzle so the day still counts."""
-        current = self.calendar.current(now)
-        parsed = ParsedResult(puzzle_number=current, score=0, tiers="")
-        return self._record(guild_id, user_id, display_name, parsed, channel_id, None, now, current)
-
     def _record(
         self,
         guild_id: int,
@@ -176,15 +162,14 @@ class KrillionService:
         return SubmitOutcome(SubmitStatus.ACCEPTED, parsed, current)
 
     def ranked_players(self, guild_id: int, now: datetime, include_inactive: bool) -> list[Player]:
-        """Public ratings board: no banned or opted-out divers, and by default nobody
+        """Public ratings board: by default nobody
         who has sat out the last :data:`MAX_INACTIVE_DAYS` puzzles."""
-        hidden = self.storage.hidden_users(guild_id)
         cutoff = self.calendar.current(now) - MAX_INACTIVE_DAYS
         last = self.storage.last_played(guild_id)
         return [
             p
             for p in self.storage.players(guild_id)
-            if p.user_id not in hidden
+            if not self.storage.is_banned(guild_id, p.user_id)
             and (include_inactive or last.get(p.user_id, cutoff) >= cutoff)
         ]
 

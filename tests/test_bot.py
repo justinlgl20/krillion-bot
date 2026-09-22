@@ -49,10 +49,20 @@ class FakeInteraction:
 
     def __post_init__(self):
         self.user = SimpleNamespace(id=self.user_id, mention=f"<@{self.user_id}>")
-        self.response = SimpleNamespace(send_message=self._send)
+        self.response = SimpleNamespace(send_message=self._send, defer=self._defer)
+        self.followup = SimpleNamespace(send=self._send)
 
-    async def _send(self, content, **kwargs):
-        self.sent.append((content, kwargs.get("ephemeral", False)))
+    async def _send(self, content=None, **kwargs):
+        self.sent.append((content, kwargs.get("embed"), kwargs.get("ephemeral", False)))
+        if "file" in kwargs:
+            self.file = kwargs["file"]
+
+    async def _defer(self, **_):
+        self.deferred = True
+
+    @property
+    def embed(self):
+        return self.sent[-1][1]
 
 
 def run_command(bot: KrillionBot, path: str, interaction, *args, **kwargs):
@@ -117,33 +127,6 @@ def test_on_message_duplicate(bot):
     asyncio.run(bot.on_message(msg))
     assert msg.reactions == ["⚠️"]
     assert "340" in msg.replies[0]
-
-
-def test_invalidate_requires_admin(bot):
-    asyncio.run(bot.on_message(FakeMessage("Krillion #58\n700")))
-    alice = SimpleNamespace(id=1, display_name="alice")
-    outsider = FakeInteraction(user_id=999)
-    run_command(bot, "krillion admin remove", outsider, alice, 58)
-    assert outsider.sent == [("Only Krillion admins can do that.", True)]
-    assert bot.service.storage.get_result(1, 58, 1).score == 700
-
-
-def test_invalidate_as_admin(bot, monkeypatch):
-    monkeypatch.setattr("krillion_bot.bot._now", lambda: NOW)
-    asyncio.run(bot.on_message(FakeMessage("Krillion #58\n700")))
-    alice = SimpleNamespace(id=1, display_name="alice")
-    admin = FakeInteraction(user_id=ADMIN)
-    run_command(bot, "krillion admin remove", admin, alice, None, "screenshot shows 340")
-    text, ephemeral = admin.sent[0]
-    assert not ephemeral
-    assert "**alice**'s Krillion #58 score (700) was invalidated by <@750888871696269402>" in text
-    assert "Reason: screenshot shows 340" in text
-    assert "corrected result" in text
-    assert bot.service.storage.get_result(1, 58, 1) is None
-
-    again = FakeInteraction(user_id=ADMIN)
-    run_command(bot, "krillion admin remove", again, alice, 58)
-    assert again.sent == [("**alice** has no Krillion #58 result to remove.", True)]
 
 
 def test_results_channel_filter(tmp_path):
