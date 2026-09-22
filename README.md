@@ -91,8 +91,8 @@ SQLite on disk, ~60 MB RAM, no other services.
     ratings and winners boards (results still count), and undo that
   - `/krillion show` – how the bot is configured in this server
 
-  Admin (`/krillion admin …`, `/krillion config …`) — for `ADMIN_USER_IDS`,
-  delegated admins, and anyone with *Manage Server*
+  Admin (`/krillion admin …`, `/krillion config …`) — for `ADMIN_USER_IDS`
+  and delegated admins only
   - `remove <member> [puzzle|date] [reason]` – remove a misreported score. If
     the day is still open the player can repost; if it was already closed,
     every closed day's rating is replayed from the remaining results
@@ -112,8 +112,8 @@ SQLite on disk, ~60 MB RAM, no other services.
     channel settings; leaving `channel` empty restores the `.env` default
 
 - **Admins** are the Discord user IDs in `ADMIN_USER_IDS` (default:
-  `750888871696269402`), plus anyone added with `/krillion admin admins` and
-  members with the *Manage Server* permission.
+  `750888871696269402`), plus anyone added with `/krillion admin admins`.
+  Server permissions such as *Manage Server* grant nothing.
 
 ## 1. Create the Discord application
 
