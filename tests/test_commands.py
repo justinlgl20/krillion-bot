@@ -167,7 +167,7 @@ def test_top_and_vs(seeded):
     i.board("krillion-top.png", "this week")
     i = Fake(1)
     run(seeded, "krillion top", i, "year", True)
-    assert "alice" in i.text or i.files
+    i.board("krillion-top.png", "this year")
     i = Fake(1)
     run(seeded, "krillion vs", i, member(1, "alice"), member(2, "bob"))
     assert "alice" in i.text and "bob" in i.text and "1" in i.text
