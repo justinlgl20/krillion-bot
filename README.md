@@ -90,15 +90,21 @@ SQLite on disk, ~60 MB RAM, no other services.
   - `/krillion puzzle` – which puzzle is live and when it resets (in each
     user's local time)
 
-  Admin (`/krillion admin ban|unban`) — for `ADMIN_USER_IDS` and delegated admins
+  Admin (`/krillion admin ban|unban|invalidate`) — for `ADMIN_USER_IDS` and delegated admins
   only; server permissions such as *Manage Server* grant nothing
   - `ban <member> [reason]` – banned divers'
-    results are ignored (🚫 reaction) and they are hidden from boards
+    results are ignored (🚫 reaction), they are hidden from boards, and their
+    current result is removed when present
   - `unban <member>` – lift a ban; their results count again
+  - `invalidate <member> [puzzle|date] [reason]` – remove a result and replay
+    ratings when a closed day is affected
+
+  Shares are accepted only when they contain exactly seven tier emojis whose
+  point values sum to the posted score.
 
 - **Admins** are the Discord user IDs in `ADMIN_USER_IDS` (default:
-  `750888871696269402`), plus delegated admins and members with the *Manage
-  Server* permission.
+  `750888871696269402`), plus delegated admins. Server permissions such as *Manage
+  Server* grant nothing.
 
 ## 1. Create the Discord application
 
@@ -210,7 +216,7 @@ krillion_bot/
   plot_week.py      weekly recap dashboard
   discord_util.py   embeds, pagination, attachments
   commands.py       /krillion public commands
-  commands_admin.py /krillion admin ban/unban subgroup
+  commands_admin.py /krillion admin ban/unban/invalidate subgroup
   bot.py            Discord glue (events, scheduler, weekly recap)
 deploy/          deploy.sh, setup-vm.sh, systemd unit
 tests/

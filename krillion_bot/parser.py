@@ -16,7 +16,8 @@ from dataclasses import dataclass
 ROUNDS_PER_DAY = 7
 MAX_DAY_SCORE = 700
 
-TIER_EMOJI = {"🌟", "🏮", "🦑", "🐟", "🤡", "🫧", "⬛"}
+TIER_SCORES = {"🌟": 100, "🏮": 85, "🦑": 60, "🐟": 30, "🤡": 15, "🫧": 10, "⬛": 0}
+TIER_EMOJI = frozenset(TIER_SCORES)
 
 _HEADER_RE = re.compile(r"krillion\s*#\s*(\d{1,5})\b", re.IGNORECASE)
 _SCORE_RE = re.compile(r"(?<![\d#])(\d{1,4})(?!\d)")
@@ -61,7 +62,13 @@ def parse_result(text: str) -> ParsedResult | None:
             if row:
                 tiers = row
                 break
-        if score is None or score < 0 or score > MAX_DAY_SCORE:
+        if (
+            score is None
+            or score < 0
+            or score > MAX_DAY_SCORE
+            or len(tiers) != ROUNDS_PER_DAY
+            or sum(TIER_SCORES[c] for c in tiers) != score
+        ):
             return None
         return ParsedResult(puzzle_number=puzzle_number, score=score, tiers=tiers)
     return None

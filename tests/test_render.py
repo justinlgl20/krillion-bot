@@ -2,17 +2,18 @@ import asyncio
 from pathlib import Path
 
 import pytest
+from helpers import tiers_for
 from test_bot import NOW, FakeInteraction, FakeMessage, run_command
 
 import krillion_bot.render as render
-from krillion_bot.formatting import RESULT_HEADER, RESULT_RIGHT, Table, result_row
+from krillion_bot.formatting import DISPLAY_EMOJI, RESULT_HEADER, RESULT_RIGHT, Table, result_row
 from krillion_bot.render import render_table
 
 BOARD = Table(
     "Krillion #58 — live",
     RESULT_HEADER,
     [
-        result_row(1, "alice", 1200.0, "🦑🦑🦑🦑🦑🐟🫧", 340, 1391.0, 24.1),
+        result_row(1, "alice", 1200.0, tiers_for(340), 340, 1391.0, 24.1),
         result_row(2, "bob", 1200.0, "🫧🫧🐟🫧🫧🤡⬛", 120, 1009.0, -24.6),
         result_row(3, "carol", 1200.0, "", 0, None, -32.0),
     ],
@@ -44,19 +45,19 @@ def test_render_produces_png():
 def test_leaderboard_command_falls_back_to_text(bot, monkeypatch):
     monkeypatch.setattr(render, "EMOJI_FONT_PATHS", ())
     monkeypatch.setattr("krillion_bot.bot._now", lambda: NOW)
-    asyncio.run(bot.on_message(FakeMessage("Krillion #58 🦐\n340\n\n🦑🦑🦑🦑🦑🐟🫧")))
+    asyncio.run(bot.on_message(FakeMessage(f"Krillion #58 🦐\n340\n\n{tiers_for(340)}")))
     interaction = FakeInteraction(user_id=1)
     run_command(bot, "krillion leaderboard", interaction, None)
     (text, _embed, _ephemeral), *_ = interaction.sent
     assert "Krillion #58 — live" in text
-    assert "` 1.`  **alice (1200 E)**  🦑🦑🦑🦑🦑🐟🫧  340  +0" in text
+    assert f"` 1.`  **alice (1200 E)**  {tiers_for(340).translate(DISPLAY_EMOJI)}  340  +0" in text
     assert "<t:" in text
 
 
 @pytest.mark.skipif(not HAVE_EMOJI_FONT, reason="Noto Color Emoji font not installed")
 def test_leaderboard_command_sends_image(bot, monkeypatch):
     monkeypatch.setattr("krillion_bot.bot._now", lambda: NOW)
-    asyncio.run(bot.on_message(FakeMessage("Krillion #58 🦐\n340\n\n🦑🦑🦑🦑🦑🐟🫧")))
+    asyncio.run(bot.on_message(FakeMessage(f"Krillion #58 🦐\n340\n\n{tiers_for(340)}")))
     sent = {}
 
     async def capture(content=None, **kwargs):

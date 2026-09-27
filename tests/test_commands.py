@@ -5,6 +5,7 @@ from zoneinfo import ZoneInfo
 
 import discord
 import pytest
+from helpers import tiers_for
 from test_bot import run_command as run
 
 from krillion_bot.bot import KrillionBot
@@ -60,8 +61,8 @@ def member(uid: int, name: str):
     return SimpleNamespace(id=uid, display_name=name, mention=f"<@{uid}>")
 
 
-def share(n: int, score: int, tiers: str = "🦑🦑🦑🦑🦑🐟🫧") -> str:
-    return f"Krillion #{n} 🦐\n{score}\n\n{tiers}"
+def share(n: int, score: int, tiers: str | None = None) -> str:
+    return f"Krillion #{n} 🦐\n{score}\n\n{tiers or tiers_for(score)}"
 
 
 def post(bot, uid, name, text, when=NOW):
@@ -85,7 +86,7 @@ def kb(bot, monkeypatch) -> KrillionBot:
 @pytest.fixture
 def seeded(kb) -> KrillionBot:
     day_ago = NOW - timedelta(days=1)
-    post(kb, 1, "alice", share(57, 700, "🦑🦑🦑🦑🦑🦑🦑"), day_ago)
+    post(kb, 1, "alice", share(57, 700, "🌟🌟🌟🌟🌟🌟🌟"), day_ago)
     post(kb, 2, "bob", share(57, 300), day_ago)
     kb.service.finalize_due(NOW)
     post(kb, 1, "alice", share(58, 340))
@@ -101,7 +102,7 @@ def test_all_subcommands_registered(kb):
         "streak", "skips", "vs", "week", "puzzle", "admin",
     }  # fmt: skip
     admin = {c.name for c in group.get_command("admin").commands}
-    assert admin == {"ban", "unban"}
+    assert admin == {"ban", "unban", "invalidate"}
 
 
 def test_stats_and_streak(seeded):
@@ -220,10 +221,34 @@ def test_admin_ban(kb):
     run(kb, "krillion admin ban", a, member(2, "bob"), "cheating")
     assert "bob` from Krillion tracking." in a.embed.description
     assert "Reason: cheating" in a.embed.description
+    assert "Removed their Krillion" not in a.embed.description
     assert post(kb, 2, "bob", share(58, 700)).status.value == "banned"
     a = Fake(ADMIN, name="admin")
     run(kb, "krillion admin ban", a, member(2, "bob"))
     assert "already banned" in a.embed.description
+
+
+def test_admin_ban_removes_current_result(kb):
+    assert post(kb, 2, "bob", share(58, 340)).status.value == "accepted"
+    a = Fake(ADMIN, name="admin")
+    run(kb, "krillion admin ban", a, member(2, "bob"))
+    assert "Removed their Krillion #58 result (340 pts)." in a.embed.description
+    assert kb.service.storage.results_for(1, 58) == []
+
+
+def test_admin_invalidate(kb):
+    assert post(kb, 2, "bob", share(58, 340)).status.value == "accepted"
+    a = Fake(ADMIN, name="admin")
+    run(kb, "krillion admin invalidate", a, member(2, "bob"), None, None, "correction")
+    assert a.embed.description == (
+        "Removed `bob`'s Krillion #58 result (340 pts).\n"
+        "Reason: correction They can post a corrected result."
+    )
+    assert kb.service.storage.results_for(1, 58) == []
+    refused = Fake(2, name="mallory")
+    run(kb, "krillion admin invalidate", refused, member(2, "bob"))
+    assert refused.sent[-1][2] is True
+    assert "Only Krillion admins" in refused.embed.description
 
 
 def test_admin_unban(kb):

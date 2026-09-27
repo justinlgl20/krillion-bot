@@ -5,6 +5,8 @@ from pathlib import Path
 from types import SimpleNamespace
 from zoneinfo import ZoneInfo
 
+from helpers import tiers_for
+
 from krillion_bot.bot import KrillionBot, build
 from krillion_bot.config import Config
 from krillion_bot.puzzle import PuzzleCalendar
@@ -101,7 +103,7 @@ def test_build_registers_commands_and_creates_db(tmp_path):
 
 
 def test_on_message_records_result(bot):
-    msg = FakeMessage("Krillion #58 🦐\n340\n\n🦑🦑🦑🦑🦑🐟🫧")
+    msg = FakeMessage(f"Krillion #58 🦐\n340\n\n{tiers_for(340)}")
     asyncio.run(bot.on_message(msg))
     assert msg.reactions == ["🦐"]
     assert msg.replies == ["Received Krillion #58 score from **alice**: 340 🦐"]
@@ -115,15 +117,15 @@ def test_on_message_ignores_bots_and_chatter(bot):
 
 
 def test_on_message_rejects_old_puzzle(bot):
-    msg = FakeMessage("Krillion #57 🦐\n340")
+    msg = FakeMessage(f"Krillion #57 🦐\n340\n\n{tiers_for(340)}")
     asyncio.run(bot.on_message(msg))
     assert msg.reactions == ["⏰"]
     assert "today's puzzle is #58" in msg.replies[0]
 
 
 def test_on_message_duplicate(bot):
-    asyncio.run(bot.on_message(FakeMessage("Krillion #58\n340")))
-    msg = FakeMessage("Krillion #58\n500")
+    asyncio.run(bot.on_message(FakeMessage(f"Krillion #58\n340\n\n{tiers_for(340)}")))
+    msg = FakeMessage(f"Krillion #58\n500\n\n{tiers_for(500)}")
     asyncio.run(bot.on_message(msg))
     assert msg.reactions == ["⚠️"]
     assert "340" in msg.replies[0]
@@ -133,7 +135,7 @@ def test_results_channel_filter(tmp_path):
     cfg = make_config(tmp_path, results_channel_id=10)
     service = KrillionService(Storage(":memory:"), PuzzleCalendar())
     b = KrillionBot(cfg, service)
-    asyncio.run(b.on_message(FakeMessage("Krillion #58\n340", channel_id=11)))
+    asyncio.run(b.on_message(FakeMessage(f"Krillion #58\n340\n\n{tiers_for(340)}", channel_id=11)))
     assert service.storage.get_result(1, 58, 1) is None
-    asyncio.run(b.on_message(FakeMessage("Krillion #58\n340", channel_id=10)))
+    asyncio.run(b.on_message(FakeMessage(f"Krillion #58\n340\n\n{tiers_for(340)}", channel_id=10)))
     assert service.storage.get_result(1, 58, 1).score == 340

@@ -2,6 +2,7 @@ from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 import pytest
+from helpers import tiers_for
 
 from krillion_bot.puzzle import PuzzleCalendar
 from krillion_bot.service import KrillionService, SubmitStatus
@@ -16,7 +17,7 @@ AFTER_58 = RESET_59 + timedelta(hours=1)
 
 
 def share(n: int, score: int) -> str:
-    return f"Krillion #{n} 🦐\n{score}\n\n🦑🦑🦑🦑🦑🐟🫧"
+    return f"Krillion #{n} 🦐\n{score}\n\n{tiers_for(score)}"
 
 
 @pytest.fixture

@@ -7,16 +7,19 @@ from typing import TYPE_CHECKING
 import discord
 from discord import app_commands
 
-from .discord_util import alert, guild_of, ok, reply
+from .commands import PUZZLE_DESCRIBE
+from .discord_util import alert, guild_of, ok, reply, resolve_puzzle
 
 if TYPE_CHECKING:
     from .bot import KrillionBot
 
 
 def register(bot: KrillionBot, parent: app_commands.Group) -> None:
-    storage = bot.service.storage
+    service = bot.service
+    storage = service.storage
+    calendar = service.calendar
     admin = app_commands.Group(
-        name="admin", description="[Admin] Ban and unban divers.", parent=parent
+        name="admin", description="[Admin] Ban, unban, or invalidate diver results.", parent=parent
     )
 
     async def gate(interaction: discord.Interaction) -> int | None:
@@ -43,8 +46,57 @@ def register(bot: KrillionBot, parent: app_commands.Group) -> None:
             )
             return
         text = f"Banned `{member.display_name}` from Krillion tracking."
+        outcome = service.invalidate(guild_id, calendar.current(bot.now()), member.id)
+        if outcome is not None:
+            text += (
+                f"\nRemoved their Krillion #{outcome.removed.puzzle_number} result "
+                f"({outcome.removed.score} pts)."
+            )
+            if outcome.replayed_days:
+                text += f"\nRatings replayed across {outcome.replayed_days} closed day(s)."
+            else:
+                text += " They can post a corrected result."
         if reason:
             text += f"\nReason: {reason}"
+        await reply(interaction, ok(text))
+
+    @app_commands.describe(
+        member="Whose result to remove",
+        **PUZZLE_DESCRIBE,
+        reason="Shown in the confirmation",
+    )
+    @admin.command(description="[Admin] Remove a diver's result for a day.")
+    async def invalidate(
+        interaction: discord.Interaction,
+        member: discord.Member,
+        puzzle: int | None = None,
+        date: str | None = None,
+        reason: str | None = None,
+    ) -> None:
+        guild_id = await gate(interaction)
+        if guild_id is None:
+            return
+        n, error = resolve_puzzle(calendar, bot.now(), puzzle, date)
+        if n is None:
+            await reply(interaction, alert(error or "Bad puzzle."), ephemeral=True)
+            return
+        outcome = service.invalidate(guild_id, n, member.id)
+        if outcome is None:
+            await reply(
+                interaction,
+                alert(f"`{member.display_name}` has no Krillion #{n} result."),
+                ephemeral=True,
+            )
+            return
+        text = (
+            f"Removed `{member.display_name}`'s Krillion #{n} result ({outcome.removed.score} pts)."
+        )
+        if reason:
+            text += f"\nReason: {reason}"
+        if outcome.replayed_days:
+            text += f"\nRatings replayed across {outcome.replayed_days} closed day(s)."
+        else:
+            text += " They can post a corrected result."
         await reply(interaction, ok(text))
 
     @app_commands.describe(member="Who to unban")

@@ -2,8 +2,9 @@ from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 import pytest
+from helpers import tiers_for
 
-from krillion_bot.formatting import final_table, live_table, ratings_table
+from krillion_bot.formatting import DISPLAY_EMOJI, final_table, live_table, ratings_table
 from krillion_bot.puzzle import PuzzleCalendar
 from krillion_bot.rating import compute_round
 from krillion_bot.service import KrillionService, SubmitStatus
@@ -20,7 +21,7 @@ RESET_59 = datetime(2026, 9, 12, 14, 0, tzinfo=AEST)
 
 
 def share(n: int, score: int) -> str:
-    return f"Krillion #{n} 🦐\n{score}\n\n🦑🦑🦑🦑🦑🐟🫧"
+    return f"Krillion #{n} 🦐\n{score}\n\n{tiers_for(score)}"
 
 
 # Head-to-head between two 1200s: what the Queens-bot engine hands the winner/loser.
@@ -49,7 +50,7 @@ def test_accepts_todays_result(service):
     assert out.status is SubmitStatus.ACCEPTED
     assert out.current_puzzle == 58
     stored = service.storage.get_result(GUILD, 58, 1)
-    assert stored is not None and stored.score == 340 and stored.tiers == "🦑🦑🦑🦑🦑🐟🫧"
+    assert stored is not None and stored.score == 340 and stored.tiers == tiers_for(340)
     assert service.storage.get_player(GUILD, 1).rating == 1200
 
 
@@ -292,7 +293,7 @@ def test_formatting(service):
     assert [c.text for c in live.rows[0]] == [
         "1",
         "alice (1200 E)",
-        "🦑🦑🦑🦑🦑🐟🫧",
+        tiers_for(340).translate(DISPLAY_EMOJI),
         "340",
         "1391",
         "+24",
@@ -300,7 +301,7 @@ def test_formatting(service):
     assert [c.text for c in live.rows[1]] == [
         "2",
         "bob (1200 E)",
-        "🦑🦑🦑🦑🦑🐟🫧",
+        tiers_for(120).translate(DISPLAY_EMOJI),
         "120",
         "1009",
         "-25",
@@ -310,7 +311,10 @@ def test_formatting(service):
     assert live.rows[0][5].color == (0, 128, 0) and live.rows[1][5].color == (128, 128, 128)
     text = live.text()
     assert text.startswith("**Krillion #58 — live** 🦐\n")
-    assert "` 1.`  **alice (1200 E)**  🦑🦑🦑🦑🦑🐟🫧  340  1391  +24" in text
+    assert (
+        f"` 1.`  **alice (1200 E)**  {tiers_for(340).translate(DISPLAY_EMOJI)}  340  1391  +24"
+        in text
+    )
     assert "<t:1800000000:R>" in text
 
     day = service.finalize_due(RESET_59 + timedelta(minutes=10))[0]
@@ -328,7 +332,7 @@ def test_formatting(service):
 
 
 def test_black_square_shown_as_snail(service):
-    submit(service, 1, "alice", "Krillion #58 🦐\n90\n\n🫧🫧🐟🫧🫧🤡⬛")
+    submit(service, 1, "alice", "Krillion #58 🦐\n85\n\n🫧🫧🐟🫧🫧🤡⬛")
     results = service.storage.results_for(GUILD, 58)
     assert results[0].tiers == "🫧🫧🐟🫧🫧🤡⬛"
     players = {p.user_id: p for p in service.storage.players(GUILD)}
@@ -345,7 +349,7 @@ def test_formatting_notes(service):
     assert [c.text for c in live.rows[0]] == [
         "1",
         "alice (1200 E)",
-        "🦑🦑🦑🦑🦑🐟🫧",
+        tiers_for(340).translate(DISPLAY_EMOJI),
         "340",
         "",
         "+0",

@@ -21,16 +21,21 @@ def test_parses_with_share_link_and_surrounding_chatter():
 
 
 def test_parses_windows_line_endings_and_markdown():
-    text = "**Krillion #7** 🦐\r\n125\r\n\r\n🫧🫧🐟🫧🫧🤡⬛"
+    text = "**Krillion #7** 🦐\r\n85\r\n\r\n🫧🫧🐟🫧🫧🤡⬛"
     r = parse_result(text)
     assert r is not None
-    assert (r.puzzle_number, r.score, r.tiers) == (7, 125, "🫧🫧🐟🫧🫧🤡⬛")
+    assert (r.puzzle_number, r.score, r.tiers) == (7, 85, "🫧🫧🐟🫧🫧🤡⬛")
 
 
-def test_parses_without_emoji_row():
+def test_rejects_without_emoji_row():
     r = parse_result("Krillion #12\n0")
+    assert r is None
+
+
+def test_parses_zero_with_blank_tiers():
+    r = parse_result("Krillion #12\n0\n\n⬛⬛⬛⬛⬛⬛⬛")
     assert r is not None
-    assert (r.puzzle_number, r.score, r.tiers) == (12, 0, "")
+    assert (r.puzzle_number, r.score, r.tiers) == (12, 0, "⬛⬛⬛⬛⬛⬛⬛")
 
 
 def test_parses_max_score():
@@ -47,6 +52,10 @@ def test_parses_max_score():
         "Krillion #58 was hard",  # no score line
         "Krillion #58\n\n🦑🦑🦑🦑🦑🐟🫧",  # emoji row where the score should be
         "Krillion #58\n9999",  # above the maximum possible score
+        "Krillion #58\n350\n\n🦑🦑🦑🦑🦑🐟🫧",  # tier total does not match
+        "Krillion #58\n340\n\n🦑🦑🦑🦑🦑🐟",  # too few tiers
+        "Krillion #58\n340\n\n🦑🦑🦑🦑🦑🐟🫧⬛",  # too many tiers
+        "Krillion #58\n700\n\n🏮🏮🏮🏮🏮🏮🏮",  # score/tier mismatch
         "Wordle 1,234 4/6\n\n⬛🟩⬛⬛⬛",
     ],
 )
